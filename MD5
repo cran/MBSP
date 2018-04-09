@@ -1,0 +1,10 @@
+6418eab3403fa67310cf4bd34f72586b *DESCRIPTION
+0f286d42e2edcd932e1d1111d8872889 *NAMESPACE
+f490af4654c94656db17ff72fe0b1d47 *R/matrix.normal.R
+f5ec438eb82cac62491bb2a4c632a33d *R/mbsp.tpbn.R
+82a89bc1ae0aef749b141b4dc1d9d324 *build/partial.rdb
+2b031ed74bc618242b7cc7198cf138a2 *data/yeast.RData
+841bec1c4fcaaad992d60d536f94baf2 *man/MBSP-package.Rd
+2692692aa44cc8061de053d17d367169 *man/matrix.normal.Rd
+b25e314f95bb0f26b422d64e6a199447 *man/mbsp.tpbn.Rd
+288cc6cb0835e875f720e598f4008ade *man/yeast.Rd

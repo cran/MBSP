@@ -1,0 +1,10 @@
+# Export all names
+exportPattern(".")
+
+# Imports
+import(MASS, coda, GIGrvg, MCMCpack)
+
+importFrom("Matrix", "chol", "chol2inv")
+importFrom("stats", "cov", "quantile", "rgamma", "rnorm", "runif",
+             "var")
+importFrom("utils", "tail")
