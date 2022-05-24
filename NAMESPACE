@@ -1,10 +1,10 @@
-# Export all names
-exportPattern(".")
+# Export
+export(MBSP)
+export(matrix_normal)
 
 # Imports
-import(MASS, coda, GIGrvg, MCMCpack)
-
-importFrom("Matrix", "chol", "chol2inv")
-importFrom("stats", "cov", "quantile", "rgamma", "rnorm", "runif",
-             "var")
+importFrom("MCMCpack", "riwish")
+importFrom("GIGrvg", "rgig")
+importFrom("stats", "cov", "quantile", "rgamma", "rnorm","var")
 importFrom("utils", "tail")
+importFrom("MASS", "mvrnorm")

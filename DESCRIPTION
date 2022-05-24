@@ -1,15 +1,15 @@
 Package: MBSP
 Type: Package
 Title: Multivariate Bayesian Model with Shrinkage Priors
-Version: 1.0
-Date: 2018-04-04
+Version: 2.0
+Date: 2022-05-23
 Author: Ray Bai, Malay Ghosh
-Maintainer: Ray Bai <raybai07@ufl.edu>
-Description: Implements a sparse Bayesian multivariate linear regression model using shrinkage priors from the three parameter beta normal family. The method is described in Bai and Ghosh (2018) <arXiv:1711.07635>. 
+Maintainer: Ray Bai <raybaistat@gmail.com>
+Description: Gibbs sampler for fitting multivariate Bayesian linear regression with shrinkage priors (MBSP), using the three parameter beta normal family. The method is described in Bai and Ghosh (2018) <doi:10.1016/j.jmva.2018.04.010>. 
 License: GPL-3
-LazyData: true
-Depends: R (>= 3.1.0), Matrix, MASS, GIGrvg, coda, MCMCpack
+Depends: R (>= 3.6.0)
+Imports: stats, MCMCpack, GIGrvg, utils, MASS
 NeedsCompilation: yes
+Packaged: 2022-05-24 03:34:44 UTC; rayba
 Repository: CRAN
-Packaged: 2018-04-09 12:22:01 UTC; rayba
-Date/Publication: 2018-04-09 13:17:15 UTC
+Date/Publication: 2022-05-24 10:10:16 UTC

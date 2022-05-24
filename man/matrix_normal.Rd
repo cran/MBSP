@@ -1,5 +1,5 @@
-\name{matrix.normal}
-\alias{matrix.normal}
+\name{matrix_normal}
+\alias{matrix_normal}
 
 \title{Matrix-Normal Distribution}
 
@@ -7,7 +7,7 @@
 }
 
 \usage{
-matrix.normal(M, U, V)}
+matrix_normal(M, U, V)}
 
 \arguments{
   \item{M}{mean \eqn{a \times b} matrix}
@@ -45,7 +45,7 @@ Ray Bai and Malay Ghosh
 # Specify Mean.mat
 p <- 50
 q <- 20
-Mean.mat <- matrix(0, nrow=p, ncol=q)
+Mean_mat <- matrix(0, nrow=p, ncol=q)
 
 # Construct U
 rho <- 0.5
@@ -54,9 +54,9 @@ H <- abs(outer(times, times, "-"))
 U <- rho^H
 
 # Construct V
-sigma.sq <- 2
-V <- sigma.sq*diag(q)
+sigma_sq <- 2
+V <- sigma_sq*diag(q)
 
-# Draw from MN(Mean.mat, U, V)
-mn.draw <- matrix.normal(Mean.mat, U, V)
+# Draw from MN(Mean_mat, U, V)
+mn_draw <- matrix_normal(Mean_mat, U, V)
 }

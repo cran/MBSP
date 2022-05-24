@@ -6,12 +6,12 @@
 # U = covariance matix of the columns
 # V = covariance matrix of the rows
 
-matrix.normal = function(M, U, V){
+matrix_normal = function(M, U, V){
   a <- dim(M)[1]
   b <- dim(M)[2]
   
   # Draw Z from MN(O, I, I)
-  Z <- matrix(rnorm(a*b,0,1), a, b)
+  Z <- matrix(stats::rnorm(a*b,0,1), a, b)
   
   # Cholesky decomposition of U and V
   L1 <- chol(U)
