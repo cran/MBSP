@@ -3,21 +3,30 @@
 
 \title{MBSP Model with Three Parameter Beta Normal (TPBN) Family}
 
-\description{This function provides a fully Bayesian approach for obtaining a (nearly) sparse estimate of the \eqn{p \times q} coefficients matrix \eqn{B} in the multivariate linear regression model, 
+\description{This function provides a fully Bayesian approach for obtaining a (nearly) sparse estimate of the \eqn{p \times q} regression coefficients matrix \eqn{B} in the multivariate linear regression model, 
 
 \deqn{Y = XB+E,} 
 
-using the three parameter beta normal (TPBN) family. The complete model is described in Bai and Ghosh (2018).
+using the three parameter beta normal (TPBN) family. Here \eqn{Y} is the \eqn{n \times q} matrix with \eqn{n} samples of \eqn{q} response variables, \eqn{X} is the \eqn{n \times p} design matrix with \eqn{n} samples of \eqn{p} covariates, and \eqn{E} is the \eqn{n \times q} noise matrix with independent rows. The complete model is described in Bai and Ghosh (2018).
+
+If there are \eqn{r} confounding variables which \emph{must} remain in the model and should \emph{not} be regularized, then these can be included in the model by putting them in a
+separate \eqn{n \times r} confounding matrix \eqn{Z}. Then the model that is fit is
+
+\deqn{Y = XB+ZC+E,}
+
+where \eqn{C} is the \eqn{r \times q} regression coefficients matrix corresponding to the confounders. In this case, we put a flat prior on \eqn{C}. By default, confounders are not included.
 }
 
 \usage{
-MBSP(X, Y, u=0.5, a=0.5, tau=NA, 
+MBSP(Y, X, confounders=NULL, u=0.5, a=0.5, tau=NA, 
      max_steps=6000, burnin=1000, save_samples=TRUE)}
 
 \arguments{
-  \item{X}{design matrix of \eqn{n} samples and \eqn{p} covariates.}
+  \item{Y}{Response matrix of \eqn{n} samples and \eqn{q} response variables.}
 
-  \item{Y}{response matrix of \eqn{n} samples and \eqn{q} response variables.}
+  \item{X}{Design matrix of \eqn{n} samples and \eqn{p} covariates. The MBSP model regularizes the regression coefficients \eqn{B} corresponding to \eqn{X}.}
+
+  \item{confounders}{Optional design matrix \eqn{Z} of \eqn{n} samples of \eqn{r} confounding variables. By default, confounders are not included in the model (\code{confounders=NULL}). However, if there are some confounders that \emph{must} remain in the model and should \emph{not} be regularized, then the user can include them here.}
 
   \item{u}{The first parameter in the TPBN family. Defaults to \eqn{u=0.5} for the horseshoe prior.}
 
@@ -34,25 +43,31 @@ MBSP(X, Y, u=0.5, a=0.5, tau=NA,
 }
 
 \details{
-The function performs (nearly) sparse estimation of \eqn{B} and variable selection from the \eqn{p} covariates. The lower and upper endpoints of the 95 percent posterior credible intervals for each of the \eqn{pq} elements of \eqn{B} are also returned so that the user may assess uncertainty quantification.
+The function performs (nearly) sparse estimation of the regression coefficients matrix \eqn{B} and variable selection from the \eqn{p} covariates. The lower and upper endpoints of the 95 percent posterior credible intervals for each of the \eqn{pq} elements of \eqn{B} are also returned so that the user may assess uncertainty quantification.
 
 In the three parameter beta normal (TPBN) family, \eqn{(u,a)=(0.5,0.5)} corresponds to the horseshoe prior, \eqn{(u,a)=(1,0.5)} corresponds to the Strawderman-Berger prior, and \eqn{(u,a)=(1,a), a > 0} corresponds to the normal-exponential-gamma (NEG) prior. This function uses the horseshoe prior as the default shinkrage prior.
+
+The user also has the option of including an \eqn{n \times r} matrix with \eqn{r} confounding variables. These confounders are variables which are included in the model but should \emph{not} be regularized. 
 
 }
 
 \value{The function returns a list containing the following components:
-\item{B_est}{ the point estimate of the \eqn{p \times q} matrix \eqn{B} (taken as the componentwise posterior median for all \eqn{pq} entries).}
-\item{CI_lower}{ The 2.5th percentile of the posterior density (or the lower endpoint of the 95 percent credible interval) for all \eqn{pq} entries of \eqn{B}.}
-\item{CI_upper}{ The 97.5th percentile of the posterior density (or the upper endpoint of the 95 percent credible interval) for all \eqn{pq} entries of \eqn{B}. }
+\item{B_est}{ The point estimate of the \eqn{p \times q} matrix \eqn{B} (taken as the componentwise posterior median for all \eqn{pq} entries).}
+\item{B_CI_lower}{ The 2.5th percentile of the posterior density (or the lower endpoint of the 95 percent credible interval) for all \eqn{pq} entries of \eqn{B}.}
+\item{B_CI_upper}{ The 97.5th percentile of the posterior density (or the upper endpoint of the 95 percent credible interval) for all \eqn{pq} entries of \eqn{B}.}
 \item{active_predictors}{ The row indices of the active (nonzero) covariates chosen by our model from the \eqn{p} total predictors.}
-\item{B_samples}{ All \code{max_steps-burnin} samples.}
+\item{B_samples}{ All \code{max_steps-burnin} samples of \eqn{B}.}
+\item{C_est}{ The point estimate of the \eqn{r \times q} matrix \eqn{C} corresponding to the confounders (taken as the componentwise posterior median for all \eqn{rq} entries. This matrix is not returned if there are no confounders (i.e. \code{confounders=NULL}).}
+\item{C_CI_lower}{ The 2.5th percentile of the posterior density (or the lower endpoint of the 95 percent credible interval) for all \eqn{rq} entries of \eqn{C}. This is not returned if there are no confounders (i.e. \code{confounders=NULL}).}
+\item{C_CI_upper}{ The 97.5th percentile of the posterior density (or the upper endpoint of the 95 percent credible interval) for all \eqn{rq} entries of \eqn{C}. This is not returned if there are no confounders (i.e. \code{confounders=NULL}) }
+\item{C_samples}{ All \code{max_steps-burnin} samples of \eqn{C}. This is not returned if there are no confounders (i.e. \code{confounders=NULL})}
+
 }
 
 \references{
 Armagan, A., Clyde, M., and Dunson, D.B. (2011) Generalized Beta Mixtures of Gaussians. In J. Shawe-Taylor, R. Zemel, P. Bartlett, F. Pereira, and K. Weinberger (Eds.) \emph{Advances in Neural Information Processing Systems 24}, 523-531.
 
 Bai, R. and Ghosh, M. (2018). High-Dimensional Multivariate Posterior Consistency Under Global-Local Shrinkage Priors. \emph{Journal of Multivariate Analysis}, \bold{167}: 157-170.
-
 Berger, J. (1980). A Robust Generalized Bayes Estimator and Confidence Region for a Multivariate Normal Mean. \emph{Annals of Statistics}, \bold{8}(4): 716-761.
 
 Carvalho, C.M., Polson, N.G., and Scott., J.G. (2010). The Horseshoe Estimator for Sparse Signals. \emph{Biometrika}, \bold{97}(2): 465-480. 
@@ -116,10 +131,12 @@ Sigma <- sigma_sq * rho^H
 mu <- rep(0,q)
 E <- MASS::mvrnorm(n, mu, Sigma)
 
-###############################
-# Generate response matrix Y. #
-###############################
+##############################
+# Generate response matrix Y #
+##############################
 Y <- crossprod(t(X),B_true) + E
+
+# Note that there are no confounding variables in this synthetic example
 
 
 #########################################
@@ -127,7 +144,7 @@ Y <- crossprod(t(X),B_true) + E
 #########################################
 
 # Should use default of max_steps=6000, burnin=1000 in practice
-mbsp_model = MBSP(X=X, Y=Y, max_steps=1000, burnin=500)
+mbsp_model = MBSP(Y=Y, X=X, max_steps=1000, burnin=500)
 
 # indices of the true nonzero rows
 true_active_predictors <- which(rowSums(B_true)!=0)

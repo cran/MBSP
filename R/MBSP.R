@@ -7,8 +7,12 @@
 ######################
 # FUNCTION ARGUMENTS #
 ######################
-# X = design matrix
-# Y = matrix of responses
+# Y = nxq matrix of response variables.
+# X = nxp design matrix of p covariates. We apply global-local shrinkage to these covariates
+#     in order to facilitate variable selection from them.
+# confounders = optional nxr matrix of confounding variables Z that should *always* be included
+#               in the model. If there are confounders, then a uniform prior is placed on their
+#               regression coefficients.
 # u = first parameter in the TPBN density (default is u=0.5 for horseshoe)
 # a = second parameter in the TPBN density (default is a=0.5 for horseshoe) 
 # tau = global tuning parameter
@@ -20,19 +24,30 @@
 ##################
 # RETURNS A LIST #
 ##################
-# B_est = posterior median point estimator
-# CI_lower = 2.5th percentile of posterior density
-# CI_upper = 97.5th percentile of posterior density
+# B_est = pxq posterior median point estimator for covariates' regression coefficients B.
+
+# B_CI_lower = 2.5th percentile of posterior for the B matrix
+# B_CI_upper = 97.5th percentile of posterior for the B matrix
 # active_predictors = row indices of the active predictors
 # B_samples = all posterior samples of B
+# C_est = rxq posterior median point estimator for confounders' regression coefficients C.
+#                   This is not returned if there are no confounders.
+# C_CI_lower = 2.5th percentile of posterior for the C matrix. This is not returned if
+#              there are no confounders.
+# C_CI_upper = 97.5th percentile of the posterior for the C matrix. This is not returned
+#              if there are no confounders.
+# C_samples = all posterior samples of C. This is not returned if there are no confounders.
 
-MBSP = function(X, Y, u=0.5, a=0.5, tau=NA, max_steps = 6000, burnin=1000,
-                save_samples=TRUE) {
+MBSP = function(Y, X, confounders=NULL, u=0.5, a=0.5, tau=NA, 
+                max_steps = 6000, burnin=1000, save_samples=TRUE) {
   
   # Burnin time should not exceed the total number of iterations.
   if (burnin > max_steps){
     stop("ERROR: Burn-in cannot be greater than # of iterations. \n")
   }
+  
+  if(nrow(Y) != nrow(Y))
+    stop("Y and X must have the same number of rows.")
   
   # Extract dimensions n, p, and q
   n <- nrow(X)
@@ -41,7 +56,6 @@ MBSP = function(X, Y, u=0.5, a=0.5, tau=NA, max_steps = 6000, burnin=1000,
 	
 	# Center X if not already done
 	X <- scale(X, center=TRUE, scale=FALSE)
-	
 	# if tau = NA, set it equal to 1/(p*sqrt(n*log(n)))
 	if(is.na(tau)){
 	  tau <- 1/(p*sqrt(n*log(n)))	  
@@ -50,37 +64,84 @@ MBSP = function(X, Y, u=0.5, a=0.5, tau=NA, max_steps = 6000, burnin=1000,
 	if ( (tau<0) | (tau>1) ){
 	  stop("ERROR: tau should be strictly between 0 and 1. \n")
 	} 
+	# If there are confounders, check that number of confounders is not
+	# greater than sample size
+	if(!is.null(confounders)){
+	  if(nrow(confounders) != n)
+	    stop("The data matrix for the confounders should have the same number of rows as Y and X.")
+	  
+	  r <- dim(confounders)[2]
+	  if(r > n){
+	    stop("The number of confounders should not exceed sample size.")
+	  }
+	  # Center the confounders matrix as well
+	  Z <- scale(confounders, center=TRUE, scale=FALSE)
+	 }
+	
 	
 	# Time saving
 	XtX <- t(X) %*% X	
 	XtY <- t(X) %*% Y
-	# List to hold the draws of B and Sigma
+	# List to hold the draws of B
 	B_samples <- rep(list(matrix(0,p,q)), max_steps)
-
+	# If there are confounders, also hold the draws of C
+	if(!is.null(confounders)){
+	  ZtZ_inv <- chol2inv(chol(t(Z) %*% Z))
+	  C_samples <- rep(list(matrix(0,r,q)), max_steps)
+	}
+	
 	#########################
 	# Initial guesses for B #
 	#########################
-	min_sing <- min(svd(XtX)$d)
-	delta <- 0.01
-	lambda <- min_sing+delta
-	
-	# Initial guess for B
-	if(p <= n){
-	  B <- chol2inv(chol(XtX + lambda*diag(p))) %*% XtY
+	if(is.null(confounders)){
+	  min_sing <- min(svd(XtX)$d)
+	  delta <- 0.01
+	  lambda <- min_sing+delta
 	  
-	} else if(p > n) { 
-	  # Using Woodbury matrix identity
-	  term1 <- (1/lambda)*XtY
-	  term2 <- (1/lambda^2)*t(X) %*% chol2inv(chol((1/lambda)*X%*%t(X) + diag(n))) %*% X %*% XtY
-	  B <- term1 - term2
+	  if(p <= n){
+	    B <- chol2inv(chol(XtX + lambda*diag(p))) %*% XtY
+	  } else if(p > n) { 
+	    # Using Woodbury matrix identity
+	    term1 <- (1/lambda)*XtY
+	    term2 <- (1/lambda^2)*t(X) %*% chol2inv(chol((1/lambda)*X%*%t(X) + diag(n))) %*% X %*% XtY
+	    B <- term1 - term2
+	  }
+	}
+	
+	# If there are confounders, need an initial guess for C too
+	if(!is.null(confounders)){
+	  XZ <- cbind(X,Z)
+	  XZtY <- t(XZ) %*% Y
+	  XZ_cp <- t(XZ) %*% XZ
+	  min_sing <- min(svd(XZ_cp)$d)
+	  delta <- 0.01
+	  lambda = min_sing+delta
+	  
+	  if((p+r) <= n){
+	    BC <- chol2inv(chol(XZ_cp + lambda*diag(p+r))) %*% XZtY
+	  } else if((p+r) > n) { 
+	    # Using Woodbury matrix identity
+	    term1 <- (1/lambda)*XZtY
+	    term2 <- (1/lambda^2)*t(XZ) %*% chol2inv(chol((1/lambda)*XZ%*%t(XZ) + diag(n))) %*% XZ %*% XZtY
+	    BC <- term1 - term2
+	  }
+	  # Initial guesses for B and C
+	  B <- BC[1:p,]
+	  C <- BC[(p+1):(p+r),]
+	  # Free memory
+	  rm(BC)
 	}
 	
 	###########################
 	# Initial guess for Sigma #
 	###########################
-	resid <- Y - X%*%B
-	Sigma <- (n-1)/n * stats::cov(resid) #  Initial guess for Sigma
-	
+  if(is.null(confounders)){
+	  resid <- Y - X%*%B
+	  Sigma <- (n-1)/n * stats::cov(resid) #  Initial guess for Sigma
+  } else {
+    resid <- Y - X%*%B - Z%*%C
+    Sigma <- (n-1)/n * stats::cov(resid)
+  }
 	#####################
 	# Initial guess for #
 	# xi_1, ..., xi_p,  # 
@@ -113,9 +174,17 @@ MBSP = function(X, Y, u=0.5, a=0.5, tau=NA, max_steps = 6000, burnin=1000,
 		if (p <= n){
 		  ridge <- XtX + diag(1/zeta)
 		  inv_ridge <- chol2inv(chol(ridge))
-		  post_M <- inv_ridge %*% XtY # Conditional posterior mean
+		  
+		  # Conditional posterior mean
+		  if(is.null(confounders)){
+	      post_M <- inv_ridge %*% XtY 
+		  } else {
+		    post_M <- inv_ridge %*% t(X) %*% (Y-Z%*%C)    
+		  }
+		    
 		  # Draw from matrix normal density
 		  B <- matrix_normal(post_M, inv_ridge, Sigma)
+		
 		} else if (p>n){
 		  # Use the more efficient sampling algorithm if p>n
 		  
@@ -129,9 +198,22 @@ MBSP = function(X, Y, u=0.5, a=0.5, tau=NA, max_steps = 6000, burnin=1000,
 		  # Set V = X%*%U + M
 		  V <- X%*%U + M
 		  # Solve for W
-		  W <- chol2inv(chol(X%*%(zeta*t(X))+diag(n)))%*%(Y-V)
+		  if(is.null(confounders)){
+		    W <- chol2inv(chol(X%*%(zeta*t(X))+diag(n)))%*%(Y-V)
+		  } else {
+		    W <- chol2inv(chol(X%*%(zeta*t(X))+diag(n)))%*%(Y-Z%*%C-V)
+		  }
 		  # Draw B from conditional distribution and return Theta 
 		  B <- U + D%*%t(X)%*%W
+		}
+		
+		#############################
+		# If there are confounders, #
+		# then sample from C        #
+		#############################
+		if(!is.null(confounders)){
+		  post_C <- ZtZ_inv %*% t(Z) %*% (Y-X%*%B)
+		  C <- matrix_normal(post_C, ZtZ_inv, Sigma)
 		}
 		
 		# Calculate square root of Sigma^-1
@@ -152,19 +234,32 @@ MBSP = function(X, Y, u=0.5, a=0.5, tau=NA, max_steps = 6000, burnin=1000,
 		#####################################		
 		# Sample Sigma from inverse-Wishart #
 		#####################################
-		resid <- Y - X %*% B
+		if(is.null(confounders)){
+		  resid <- Y - X %*% B
+		} else{
+		  resid <- Y - X%*% B - Z %*% C  
+		}
 		sum1 <- t(resid)%*%resid
 		sum2 <- t(B)%*%(B/zeta)
 		Sigma <- MCMCpack::riwish(n+d+p, sum1+sum2+k*diag(q))
 		
-		# Save the most recent estimate of B and Sigma to the list
+		# Save the most recent estimate of B to the list
 		B_samples[[j]] <- B
+		
+		# If there are confounders, also save recent estimate of C to the list
+		if(!is.null(confounders)){
+		  C_samples[[j]] <- C
+		}
 	}
 	
   ###################
   # Discard burn-in #
   ###################
   B_samples <- utils::tail(B_samples, max_steps-burnin)
+  if(!is.null(confounders)){
+    C_samples <- utils::tail(C_samples, max_steps-burnin)
+  }
+  
   
   #################################
   # Extract the posterior median, #
@@ -175,8 +270,18 @@ MBSP = function(X, Y, u=0.5, a=0.5, tau=NA, max_steps = 6000, burnin=1000,
   # Take posterior median as point estimate for B
   B_est <- mbsp_quantiles[2,,]
   # For marginal credible intervals
-  CI_lower <- mbsp_quantiles[1,,]
-  CI_upper <- mbsp_quantiles[3,,]
+  B_CI_lower <- mbsp_quantiles[1,,]
+  B_CI_upper <- mbsp_quantiles[3,,]
+  
+  if(!is.null(confounders)){
+    arr <- array(unlist(C_samples), c(r,q,length(C_samples)))
+    C_quantiles <- apply(arr, 1:2, function(x) stats::quantile(x, prob=c(.025,.5,.975)))
+    # Take posterior median as point estimate for B
+    C_est <- C_quantiles[2,,]
+    # For marginal credible intervals
+    C_CI_lower <- C_quantiles[1,,]
+    C_CI_upper <- C_quantiles[3,,]
+  }
   
   ##############################
   # Perform variable selection #
@@ -186,12 +291,12 @@ MBSP = function(X, Y, u=0.5, a=0.5, tau=NA, max_steps = 6000, burnin=1000,
   classification_matrix <- matrix(rep(0,p*q),nrow=p,ncol=q)
   
   # Find the active covariates
-  for(k in 1:p){
+  for(t in 1:p){
     for(l in 1:q) {
-      if(CI_lower[k,l] < 0 && CI_upper[k,l] < 0)
-        classification_matrix[k,l] <- 1
-      else if(CI_lower[k,l] > 0 && CI_upper[k,l] > 0)
-        classification_matrix[k,l] <- 1
+      if(B_CI_lower[t,l] < 0 && B_CI_upper[t,l] < 0)
+        classification_matrix[t,l] <- 1
+      else if(B_CI_lower[t,l] > 0 && B_CI_upper[t,l] > 0)
+        classification_matrix[t,l] <- 1
     }
   }
   
@@ -205,16 +310,38 @@ MBSP = function(X, Y, u=0.5, a=0.5, tau=NA, max_steps = 6000, burnin=1000,
   ################################
   
   if(save_samples){
-    mbsp_output <- list(B_est = B_est, 
-                        CI_lower = CI_lower,
-                        CI_upper = CI_upper,
-                        active_predictors = active_predictors,
-                        B_samples = B_samples)
+    if(is.null(confounders)){
+      mbsp_output <- list(B_est = B_est, 
+                          B_CI_lower = B_CI_lower,
+                          B_CI_upper = B_CI_upper,
+                          active_predictors = active_predictors,
+                          B_samples = B_samples)
+    } else {
+      mbsp_output <- list(B_est = B_est,
+                          B_CI_lower = B_CI_lower,
+                          B_CI_upper = B_CI_upper,
+                          active_predictors = active_predictors,
+                          B_samples = B_samples,
+                          C_est = C_est,
+                          C_CI_lower = C_CI_lower,
+                          C_CI_upper = C_CI_upper,
+                          C_samples = C_samples)
+    }
   } else {
-    mbsp_output <- list(B_est = B_est, 
-                        CI_lower = CI_lower,
-                        CI_upper = CI_upper,
-                        active_predictors = active_predictors)
+    if(is.null(confounders)){
+      mbsp_output <- list(B_est = B_est, 
+                          B_CI_lower = B_CI_lower,
+                          B_CI_upper = B_CI_upper,
+                          active_predictors = active_predictors)
+    } else {
+      mbsp_output <- list(B_est = B_est,
+                          B_CI_lower = B_CI_lower,
+                          B_CI_upper = B_CI_upper,
+                          active_predictors = active_predictors,
+                          C_est = C_est,
+                          C_CI_lower = C_CI_lower,
+                          C_CI_upper = C_CI_upper)    
+    }
   }
   
   # Return list
