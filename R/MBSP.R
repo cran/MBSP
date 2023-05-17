@@ -15,11 +15,13 @@
 #               regression coefficients.
 # u = first parameter in the TPBN density (default is u=0.5 for horseshoe)
 # a = second parameter in the TPBN density (default is a=0.5 for horseshoe) 
-# tau = global tuning parameter
+# tau = global tuning parameter. In general, it is recommended that tau be between 0 and 1, 
+#       but the user may specify any tau greater than 0. A smaller tau gives greater shrinkage.
 #       If not specified by user, defaults to 1/(p*sqrt(n log(n)))
 # max_steps = number of total iterations to run MCMC
 # burnin = # of samples in burn-in
 # save_samples = Boolean variable for whether or not to return all posterior samples
+# model_criteria = Boolean variable for whether or not to return DIC and WAIC
 
 ##################
 # RETURNS A LIST #
@@ -37,9 +39,18 @@
 # C_CI_upper = 97.5th percentile of the posterior for the C matrix. This is not returned
 #              if there are no confounders.
 # C_samples = all posterior samples of C. This is not returned if there are no confounders.
+# Sigma_est = posterior median point estimator for covariance matrix Sigma
+# Sigma_CI_lower = 2.5th percentile of the posterior for the covariance matrix Sigma
+# Sigma_CI_upper = 97.th percentile of the posterior for the covariance matrix Sigma
+# DIC = Deviance Information Criterion (DIC) for the MBSP model. Can be used for model selection.
+#       If model_criteria==FALSE, then this is returned as NA.
+# WAIC =  Widely Applicable Information Criterion (WAIC) for the MBSP model. Can be used for model selection.
+#         If model_criteria==FALSE, then this is returned as NA.
+
 
 MBSP = function(Y, X, confounders=NULL, u=0.5, a=0.5, tau=NA, 
-                max_steps = 6000, burnin=1000, save_samples=TRUE) {
+                max_steps = 6000, burnin=1000, save_samples=TRUE,
+                model_criteria=FALSE) {
   
   # Burnin time should not exceed the total number of iterations.
   if (burnin > max_steps){
@@ -60,9 +71,9 @@ MBSP = function(Y, X, confounders=NULL, u=0.5, a=0.5, tau=NA,
 	if(is.na(tau)){
 	  tau <- 1/(p*sqrt(n*log(n)))	  
 	}
-	# if user specified tau, must be between 0 and 1.
-	if ( (tau<0) | (tau>1) ){
-	  stop("ERROR: tau should be strictly between 0 and 1. \n")
+	# if user specified tau, must be strictly positive
+	if (tau<0){
+	  stop("ERROR: tau should be strictly positive. \n")
 	} 
 	# If there are confounders, check that number of confounders is not
 	# greater than sample size
@@ -78,7 +89,6 @@ MBSP = function(Y, X, confounders=NULL, u=0.5, a=0.5, tau=NA,
 	  Z <- scale(confounders, center=TRUE, scale=FALSE)
 	 }
 	
-	
 	# Time saving
 	XtX <- t(X) %*% X	
 	XtY <- t(X) %*% Y
@@ -89,15 +99,19 @@ MBSP = function(Y, X, confounders=NULL, u=0.5, a=0.5, tau=NA,
 	  ZtZ_inv <- chol2inv(chol(t(Z) %*% Z))
 	  C_samples <- rep(list(matrix(0,r,q)), max_steps)
 	}
+	# List to hold the draws of Sigma
+	Sigma_samples <- rep(list(matrix(0,q,q)), max_steps)
+	if(model_criteria==TRUE){
+	  # List to hold log-likelihood. Needed to compute DIC and WAIC
+	  loglik_samples <- matrix(0, n, max_steps)
+	}
 	
 	#########################
 	# Initial guesses for B #
 	#########################
 	if(is.null(confounders)){
-	  min_sing <- min(svd(XtX)$d)
-	  delta <- 0.01
-	  lambda <- min_sing+delta
-	  
+	  lambda <- 0.01
+	  # Ridge estimator
 	  if(p <= n){
 	    B <- chol2inv(chol(XtX + lambda*diag(p))) %*% XtY
 	  } else if(p > n) { 
@@ -113,9 +127,7 @@ MBSP = function(Y, X, confounders=NULL, u=0.5, a=0.5, tau=NA,
 	  XZ <- cbind(X,Z)
 	  XZtY <- t(XZ) %*% Y
 	  XZ_cp <- t(XZ) %*% XZ
-	  min_sing <- min(svd(XZ_cp)$d)
-	  delta <- 0.01
-	  lambda = min_sing+delta
+	  lambda <- 0.01
 	  
 	  if((p+r) <= n){
 	    BC <- chol2inv(chol(XZ_cp + lambda*diag(p+r))) %*% XZtY
@@ -189,12 +201,15 @@ MBSP = function(Y, X, confounders=NULL, u=0.5, a=0.5, tau=NA,
 		  # Use the more efficient sampling algorithm if p>n
 		  
 		  # Draw U ~ MN(O, D, Sigma)
-		  D <- diag(zeta)
-		  Zero_1 <- matrix(0, nrow=p, ncol=q)
-		  U <- matrix_normal(Zero_1, D, Sigma)
+		  U <- matrix(0, nrow=p, ncol=q)
+		  for(i in 1:p){
+		    U[i, ] <- mvtnorm::rmvnorm(1, rep(0,q), zeta[i]*Sigma)
+		  }
 		  # Draw M ~ MN(O, I_n, Sigma)
-		  Zero_2 <- matrix(0, nrow=n, ncol=q)
-		  M <- matrix_normal(Zero_2, diag(n), Sigma)
+		  M <- matrix(0, nrow=n, ncol=q)
+		  for(i in 1:n){
+		    M[i, ] <- mvtnorm::rmvnorm(1, rep(0,q), Sigma)
+		  }
 		  # Set V = X%*%U + M
 		  V <- X%*%U + M
 		  # Solve for W
@@ -204,7 +219,7 @@ MBSP = function(Y, X, confounders=NULL, u=0.5, a=0.5, tau=NA,
 		    W <- chol2inv(chol(X%*%(zeta*t(X))+diag(n)))%*%(Y-Z%*%C-V)
 		  }
 		  # Draw B from conditional distribution and return Theta 
-		  B <- U + D%*%t(X)%*%W
+		  B <- U + (zeta*t(X))%*%W
 		}
 		
 		#############################
@@ -243,13 +258,32 @@ MBSP = function(Y, X, confounders=NULL, u=0.5, a=0.5, tau=NA,
 		sum2 <- t(B)%*%(B/zeta)
 		Sigma <- MCMCpack::riwish(n+d+p, sum1+sum2+k*diag(q))
 		
-		# Save the most recent estimate of B to the list
+		# Save the most recent estimate of B and Sigma
 		B_samples[[j]] <- B
+		Sigma_samples[[j]] <- Sigma
 		
 		# If there are confounders, also save recent estimate of C to the list
 		if(!is.null(confounders)){
 		  C_samples[[j]] <- C
 		}
+		
+		if(model_criteria==TRUE){
+		  # Compute log-likelihood
+		  if(is.null(confounders)){
+		    # If no confounders
+		    mu = X%*%B
+		    for(i in 1:n){
+		      loglik_samples[i,j] <- mvtnorm::dmvnorm(Y[i,], mean=mu[i,], sigma=Sigma, log=TRUE)
+		    }
+		  } else {
+		    # If there are confounders
+		    mu = X%*%B + Z%*%C
+		    for(i in 1:n){
+		      loglik_samples[i,j] <- mvtnorm::dmvnorm(Y[i,], mean=mu[i,], sigma=Sigma, log=TRUE)
+		    }
+		  }
+		}
+	# End Gibbs sampler
 	}
 	
   ###################
@@ -259,28 +293,76 @@ MBSP = function(Y, X, confounders=NULL, u=0.5, a=0.5, tau=NA,
   if(!is.null(confounders)){
     C_samples <- utils::tail(C_samples, max_steps-burnin)
   }
-  
+  Sigma_samples <- utils::tail(Sigma_samples, max_steps-burnin)
+  if(model_criteria==TRUE){
+    loglik_samples <- loglik_samples[ , (burnin+1):max_steps]
+  }
   
   #################################
   # Extract the posterior median, #
   # 2.5th, and 97.5th quantiles   #
   #################################
-  arr <- array(unlist(B_samples), c(p,q,length(B_samples)))
-  mbsp_quantiles <- apply(arr, 1:2, function(x) stats::quantile(x, prob=c(.025,.5,.975)))
+  B_arr <- array(unlist(B_samples), c(p,q,length(B_samples)))
+  B_quantiles <- apply(B_arr, 1:2, function(x) stats::quantile(x, prob=c(.025,.5,.975)))
   # Take posterior median as point estimate for B
-  B_est <- mbsp_quantiles[2,,]
+  B_est <- B_quantiles[2,,]
   # For marginal credible intervals
-  B_CI_lower <- mbsp_quantiles[1,,]
-  B_CI_upper <- mbsp_quantiles[3,,]
+  B_CI_lower <- B_quantiles[1,,]
+  B_CI_upper <- B_quantiles[3,,]
   
   if(!is.null(confounders)){
-    arr <- array(unlist(C_samples), c(r,q,length(C_samples)))
-    C_quantiles <- apply(arr, 1:2, function(x) stats::quantile(x, prob=c(.025,.5,.975)))
+    C_arr <- array(unlist(C_samples), c(r,q,length(C_samples)))
+    C_quantiles <- apply(C_arr, 1:2, function(x) stats::quantile(x, prob=c(.025,.5,.975)))
     # Take posterior median as point estimate for B
     C_est <- C_quantiles[2,,]
     # For marginal credible intervals
     C_CI_lower <- C_quantiles[1,,]
     C_CI_upper <- C_quantiles[3,,]
+  }
+  
+  Sigma_arr <- array(unlist(Sigma_samples), c(q,q,length(Sigma_samples)))
+  Sigma_quantiles <- apply(Sigma_arr, 1:2, function(x) stats::quantile(x, prob=c(.025,.5,.975)))
+  # Take posterior median as point estimate for B
+  Sigma_est <- Sigma_quantiles[2,,]
+  # For marginal credible intervals
+  Sigma_CI_lower <- Sigma_quantiles[1,,]
+  Sigma_CI_upper <- Sigma_quantiles[3,,]
+  
+  ################################################
+  # Compute DIC and WAIC if model_criteria==TRUE #
+  ################################################
+  DIC = WAIC = NA
+  if(model_criteria==TRUE){
+    # Obtain the posterior means
+    B_hat <- apply(B_arr, 1:2, mean)
+    if(!is.null(confounders)){
+      C_hat <- apply(C_arr, 1:2, mean)
+    }
+    Sigma_hat <- apply(Sigma_arr, 1:2, mean)
+  
+    # Calculate log-likehood with B_hat, C_hat, Sigma_hat
+    ll_theta_hat <- 0
+    if(is.null(confounders)){
+      mu = X%*%B_hat
+      for(i in 1:n){
+        ll_theta_hat <- ll_theta_hat + mvtnorm::dmvnorm(Y[i,], mean=mu[i,], sigma=Sigma_hat, log=TRUE)
+      }
+    } else {
+      # If there are confounders
+      mu = X%*%B_hat+Z%*%C_hat
+      for(i in 1:n){
+        ll_theta_hat <- ll_theta_hat + mvtnorm::dmvnorm(Y[i,], mean=mu[i,], sigma=Sigma_hat, log=TRUE)
+      }
+    }
+  
+    # Compute DIC
+    DIC <- -4*mean(colSums(loglik_samples)) + 2*ll_theta_hat 
+
+    # Compute WAIC
+    var_ll <- apply(loglik_samples, 1, stats::var)
+    lik_samples <- exp(loglik_samples)
+    mean_lik <- apply(lik_samples, 1, mean)
+    WAIC <- 2*(sum(var_ll)) - 2*sum(log(mean_lik))
   }
   
   ##############################
@@ -315,7 +397,13 @@ MBSP = function(Y, X, confounders=NULL, u=0.5, a=0.5, tau=NA,
                           B_CI_lower = B_CI_lower,
                           B_CI_upper = B_CI_upper,
                           active_predictors = active_predictors,
-                          B_samples = B_samples)
+                          B_samples = B_samples,
+                          Sigma_est = Sigma_est, 
+                          Sigma_CI_lower = Sigma_CI_lower,
+                          Sigma_CI_upper = Sigma_CI_upper,
+                          Sigma_samples = Sigma_samples,
+                          DIC = DIC,
+                          WAIC = WAIC)
     } else {
       mbsp_output <- list(B_est = B_est,
                           B_CI_lower = B_CI_lower,
@@ -325,14 +413,25 @@ MBSP = function(Y, X, confounders=NULL, u=0.5, a=0.5, tau=NA,
                           C_est = C_est,
                           C_CI_lower = C_CI_lower,
                           C_CI_upper = C_CI_upper,
-                          C_samples = C_samples)
+                          C_samples = C_samples,
+                          Sigma_est = Sigma_est, 
+                          Sigma_CI_lower = Sigma_CI_lower,
+                          Sigma_CI_upper = Sigma_CI_upper,
+                          Sigma_samples = Sigma_samples,
+                          DIC = DIC,
+                          WAIC = WAIC)
     }
   } else {
     if(is.null(confounders)){
       mbsp_output <- list(B_est = B_est, 
                           B_CI_lower = B_CI_lower,
                           B_CI_upper = B_CI_upper,
-                          active_predictors = active_predictors)
+                          active_predictors = active_predictors,
+                          Sigma_est = Sigma_est, 
+                          Sigma_CI_lower = Sigma_CI_lower,
+                          Sigma_CI_upper = Sigma_CI_upper,
+                          DIC = DIC,
+                          WAIC = WAIC)
     } else {
       mbsp_output <- list(B_est = B_est,
                           B_CI_lower = B_CI_lower,
@@ -340,7 +439,12 @@ MBSP = function(Y, X, confounders=NULL, u=0.5, a=0.5, tau=NA,
                           active_predictors = active_predictors,
                           C_est = C_est,
                           C_CI_lower = C_CI_lower,
-                          C_CI_upper = C_CI_upper)    
+                          C_CI_upper = C_CI_upper,
+                          Sigma_est = Sigma_est, 
+                          Sigma_CI_lower = Sigma_CI_lower,
+                          Sigma_CI_upper = Sigma_CI_upper,
+                          DIC = DIC,
+                          WAIC = WAIC)    
     }
   }
   
